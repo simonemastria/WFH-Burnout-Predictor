@@ -1,0 +1,383 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage[utf8]{inputenc}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{hyperref}
+
+\renewcommand{\ttdefault}{cmtt}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=black,
+  urlcolor=black
+}
+
+\title{WFH Burnout Predictor: A CRISP-DM Machine Learning Project}
+
+\author{
+\IEEEauthorblockN{Simone Mastria}
+\IEEEauthorblockA{Machine Learning and Data Mining, Module 2\\
+University of Bologna\\
+Email: simone.mastria@studenti.unibo.it}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This paper describes a machine learning project for estimating burnout in
+work-from-home settings from daily behavioral indicators such as working hours,
+screen time, meetings, breaks, after-hours work, sleep and task completion. The
+work follows the CRISP-DM methodology discussed in the course The main task is regression
+on \texttt{burnout\_score}; classification of \texttt{burnout\_risk} is treated
+as a secondary analysis because the high-risk class is strongly imbalanced.
+\end{abstract}
+
+\begin{IEEEkeywords}
+machine learning, CRISP-DM, burnout prediction, work from home, regression,
+classification, fairness
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+The goal of the project is to develop a complete machine learning workflow for the
+prediction of employee burnout in work-from-home (WFH) scenarios. Burnout is a
+sensitive topic: predictions should not be interpreted as medical diagnoses or
+used for automatic human-resources decisions. The intended use is decision
+support at an aggregate level, for example to identify workload patterns that may
+deserve organizational attention.
+
+The project uses the public Kaggle dataset \emph{Work From Home Employee Burnout
+Dataset}~\cite{kaggle}. It contains 1,800 daily observations, 180 users and 10
+records per user. Each row includes workload and lifestyle variables:
+\texttt{day\_type}, \texttt{work\_hours}, \texttt{screen\_time\_hours},
+\texttt{meetings\_count}, \texttt{breaks\_taken},
+\texttt{after\_hours\_work}, \texttt{sleep\_hours} and
+\texttt{task\_completion\_rate}. The available targets are
+\texttt{burnout\_score}, a continuous score, and \texttt{burnout\_risk}, a
+categorical label with values \texttt{Low}, \texttt{Medium} and \texttt{High}.
+
+The work was carried out individually by Simone Mastria and covers dataset
+inspection, preprocessing design, feature engineering, model selection,
+evaluation and interpretation.
+
+The main challenge is not the implementation of a single algorithm, but the
+construction of a defensible data mining workflow. In
+particular, the dataset contains repeated observations for each employee. If a
+standard random row split were used, the same employee could appear in both
+training and test data, producing an overly optimistic evaluation. Another
+challenge is the semantic interpretation of the available variables: some
+features are plausible behavioral predictors, while others may be close proxies
+for the target itself. These aspects motivated a conservative methodology based
+on grouped splitting, baseline comparison and explicit discussion of limitations.
+
+\section{Proposed Method}
+
+\subsection{CRISP-DM Strategy}
+
+The project was organized according to CRISP-DM~\cite{shearer}. In the business
+understanding phase, the objective was formulated as a predictive and
+interpretable support tool for WFH burnout monitoring. In the data understanding
+phase, the dataset schema, missing values, duplicates, target distributions and
+correlations were analyzed. In the data preparation phase, transformations were
+implemented through scikit-learn pipelines to avoid leakage. Modeling compared
+baselines and supervised learning algorithms. Evaluation considered both
+technical metrics and domain limitations. Deployment was described as a cautious
+plan rather than an automatic production system.
+
+Table~\ref{tab:crispdm} summarizes how the CRISP-DM phases were mapped to the
+project artifacts. This mapping was used both to structure the notebook and to
+prepare the final paper.
+
+\begin{table}[h]
+\centering
+\caption{CRISP-DM mapping for the project.}
+\label{tab:crispdm}
+\begin{tabular}{p{0.26\linewidth}p{0.62\linewidth}}
+\toprule
+Phase & Project artifact \\
+\midrule
+Business understanding & Goal, target choice, metrics and risks \\
+Data understanding & Schema, target distribution, correlations and bias notes \\
+Data preparation & Grouped split, encoding, scaling and feature engineering \\
+Modeling & Baselines, candidate models and tuning \\
+Evaluation & Test metrics, error analysis and interpretability \\
+Deployment & Colab execution, saved pipeline and monitoring plan \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Data Preparation}
+
+The dataset has no missing values and no duplicated rows. However, it still
+requires preprocessing, The identifier
+\texttt{user\_id} was not used as a feature because it is not generalizable.
+Instead, it was used as a grouping variable during splitting: records from the
+same user must not appear in both training and test sets.
+
+Table~\ref{tab:variables} reports the core variables. The distinction between
+predictive features, grouping variable and targets is essential to avoid leakage.
+
+\begin{table}[h]
+\centering
+\caption{Main variables used in the project.}
+\label{tab:variables}
+\begin{tabular}{ll}
+\toprule
+Variable & Role \\
+\midrule
+\texttt{user\_id} & Grouping variable, excluded from predictors \\
+\texttt{day\_type} & Categorical predictor \\
+\texttt{work\_hours} & Numeric predictor \\
+\texttt{screen\_time\_hours} & Numeric predictor \\
+\texttt{meetings\_count} & Numeric predictor \\
+\texttt{breaks\_taken} & Numeric predictor \\
+\texttt{after\_hours\_work} & Binary predictor \\
+\texttt{sleep\_hours} & Numeric predictor \\
+\texttt{task\_completion\_rate} & Numeric predictor, high-leverage feature \\
+\texttt{burnout\_score} & Regression target \\
+\texttt{burnout\_risk} & Classification target \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The train/test split was performed with \texttt{GroupShuffleSplit}, using 80\%
+of the records for training and 20\% for testing. This produced 1,440 training
+rows and 360 test rows, with zero overlap between train and test users. This is
+more realistic than a random row split because the model is evaluated on unseen
+users.
+
+Categorical variables were encoded with one-hot encoding and numeric variables
+were standardized with \texttt{StandardScaler}. All transformations were placed
+inside a \texttt{ColumnTransformer} and a scikit-learn \texttt{Pipeline}; thus,
+encoders and scalers are fitted only on training data.
+
+Several interpretable engineered features were added:
+\texttt{work\_intensity}, \texttt{screen\_work\_ratio},
+\texttt{meeting\_density}, \texttt{sleep\_deficit} and
+\texttt{overwork\_flag}. These variables express workload pressure, screen
+exposure, meeting concentration and sleep deficit.
+
+The preprocessing pipeline also improves reproducibility. Every candidate model
+receives exactly the same transformed feature matrix, and the same logic is
+available at inference time if the fitted pipeline is saved. This is preferable
+to manually transforming training and test sets in separate notebook cells,
+which would make leakage and inconsistent preprocessing more likely.
+
+\subsection{Modeling Strategy}
+
+The primary task is regression on \texttt{burnout\_score}. The secondary task is
+classification on \texttt{burnout\_risk}. This choice is important because the
+categorical target is highly imbalanced: 1,527 rows are \texttt{Low}, 253 are
+\texttt{Medium}, and only 20 are \texttt{High}. Therefore, a classifier can
+obtain high accuracy while failing on the most critical cases.
+
+For regression, the following models were evaluated: \texttt{DummyRegressor},
+Ridge Regression, K-Nearest Neighbors, Random Forest and Hist Gradient Boosting.
+For classification, the models were \texttt{DummyClassifier}, balanced Logistic
+Regression, balanced Random Forest and Hist Gradient Boosting. Cross-validation
+used \texttt{GroupKFold} on the training set. A light hyperparameter search was
+then performed for Random Forest regression with \texttt{RandomizedSearchCV}.
+
+The main regression metric is mean absolute error (MAE), supported by RMSE and
+$R^2$. The classification metrics are macro F1, balanced accuracy and
+class-level precision/recall. These metrics are aligned with the course
+recommendation to define clear, task-dependent evaluation criteria rather than
+optimizing accuracy blindly.
+
+The selected algorithms cover different inductive biases. Ridge Regression is a
+linear baseline with regularization and is useful to check whether the target is
+mostly explained by linear relationships. KNN is sensitive to scaling and local
+neighborhood structure. Random Forest and Hist Gradient Boosting can capture
+non-linear effects and interactions. Dummy models provide lower bounds: if a
+candidate does not clearly beat them, it should not be considered useful.
+
+Hyperparameter optimization was deliberately limited. The course material on
+AutoML emphasizes that automated search is useful, but it should not replace
+problem understanding. Therefore, only a small randomized search was applied to
+Random Forest after comparing the initial candidates. The final test set was not
+used to choose hyperparameters.
+
+\section{Results}
+
+\subsection{Data Insights}
+
+The data understanding phase showed that \texttt{task\_completion\_rate} is the
+dominant feature: it has a correlation of about $-0.96$ with
+\texttt{burnout\_score}. This is predictive, but it must be interpreted with
+caution. It may be a direct proxy for burnout or part of the synthetic logic used
+to generate the target. Other variables such as \texttt{work\_hours},
+\texttt{screen\_time\_hours} and \texttt{meetings\_count} have weaker positive
+correlations with burnout.
+
+The descriptive analysis also confirmed that the dataset is clean in a
+technical sense: there are no missing values, no duplicated rows, and each user
+has exactly 10 observations. However, technical cleanliness is not the same as
+data quality for decision making. Since the dataset is public and its collection
+context is limited, representativeness cannot be guaranteed. This limits the
+strength of any claim about real organizations.
+
+An explicit data quality report was added to the notebook, including checks for
+invalid ranges, duplicates and missing values. Statistical outliers were also
+detected through the IQR method for the main numeric variables. They were not
+removed automatically: in this domain, extreme burnout scores or extreme working
+patterns may be the most relevant observations rather than errors.
+
+The risk-label distribution is a major issue. The \texttt{High} class represents
+only about 1.1\% of the dataset. This affects model selection, evaluation and
+fairness: the most important class from a preventive perspective is also the
+least represented.
+
+For this reason, the project treats \texttt{burnout\_risk} as a secondary task.
+The continuous score gives a more stable learning signal, while the classes are
+useful to communicate results and inspect whether high-risk observations are
+missed.
+
+\subsection{Regression Results}
+
+Table~\ref{tab:regression} reports the test-set results for the main regression
+models. All meaningful models outperform the dummy baseline by a large margin.
+Ridge obtains the lowest raw test MAE among the initial models, while Random
+Forest has the best cross-validation MAE and was selected for tuning.
+
+\begin{table}[h]
+\centering
+\caption{Regression performance on the test set.}
+\label{tab:regression}
+\begin{tabular}{lccc}
+\toprule
+Model & MAE & RMSE & $R^2$ \\
+\midrule
+Ridge & 4.79 & 6.31 & 0.934 \\
+Random Forest & 4.85 & 6.41 & 0.932 \\
+Hist Gradient Boosting & 5.14 & 6.73 & 0.925 \\
+KNN & 9.26 & 11.65 & 0.776 \\
+Dummy median & 20.35 & 25.80 & -0.099 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+After tuning, Random Forest used 200 estimators, maximum depth 4,
+\texttt{min\_samples\_leaf=8} and \texttt{max\_features=1.0}. The tuned model
+obtained CV MAE 4.85, test MAE 4.88, test RMSE 6.21 and test $R^2=0.936$. This
+is a strong improvement over the dummy baseline and confirms that the selected
+features contain useful predictive information.
+
+Cross-validation on the training set supported the same conclusion. Random
+Forest obtained mean CV MAE 4.97, Ridge 5.06, Hist Gradient Boosting 5.19, KNN
+9.03 and the dummy baseline 18.46. The gap between training and test error was
+monitored to detect overfitting: tree-based models obtained lower training error
+but did not collapse on unseen users, while KNN remained substantially weaker.
+
+The error analysis in the notebook includes a predicted-versus-actual plot, the
+distribution of residuals and the largest individual errors. These checks are
+important because an average error can hide systematic failures. In this domain,
+large underestimation for high-burnout records would be more problematic than
+small errors around low-risk observations.
+
+To address a key methodological risk, a sensitivity analysis was performed by
+removing \texttt{task\_completion\_rate}. Results dropped sharply: Ridge reached
+MAE 20.25 and Random Forest MAE 20.26, close to the dummy baseline. This confirms
+that \texttt{task\_completion\_rate} carries most of the predictive signal. The
+model is therefore useful as a predictive pipeline, but it should not be
+presented as evidence of causal burnout mechanisms.
+
+\subsection{Classification Results}
+
+The best classifier was balanced Logistic Regression, with balanced accuracy
+0.803 and macro F1 0.646. Table~\ref{tab:classification} reports its class-level
+metrics. The model performs very well on \texttt{Low} and reasonably on
+\texttt{Medium}; the \texttt{High} class remains difficult because only four
+high-risk examples are present in the test set.
+
+\begin{table}[h]
+\centering
+\caption{Classification report for balanced Logistic Regression.}
+\label{tab:classification}
+\begin{tabular}{lcccc}
+\toprule
+Class & Precision & Recall & F1 & Support \\
+\midrule
+Low & 0.99 & 0.93 & 0.96 & 294 \\
+Medium & 0.68 & 0.73 & 0.70 & 62 \\
+High & 0.17 & 0.75 & 0.27 & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The low precision on \texttt{High} indicates many false alarms, while the recall
+of 0.75 suggests that most observed high-risk test cases were detected. In a
+preventive setting, this trade-off may be acceptable only if predictions are
+reviewed by humans and not used automatically.
+
+The classification results also show why accuracy alone would be misleading.
+The dummy classifier that always predicts the majority class is not useful, even
+though most observations are \texttt{Low}. Macro F1 and balanced accuracy give a
+more honest view because they weight minority classes more appropriately.
+
+\subsection{Interpretability}
+
+Permutation importance was computed on the regression test set. The most
+important feature is \texttt{task\_completion\_rate}. This is consistent with
+the correlation analysis, but it should not be interpreted causally. A low task
+completion rate may be a consequence, a symptom, a proxy, or a construction
+component of burnout score. Other features, such as workload and screen time,
+provide weaker but more directly actionable information. This distinction is
+important for business interpretation: interventions should not simply pressure
+employees to complete more tasks, because that may worsen the underlying
+problem.
+
+\subsection{Fairness and Ethics}
+
+The dataset does not include sensitive attributes such as gender, age or ethnic
+origin. Nevertheless, fairness cannot be ignored. The notebook checks regression
+errors and high-risk recall across operational subgroups such as
+\texttt{day\_type}, \texttt{after\_hours\_work} and work-hour bands. These
+checks are not a full fairness audit, but they are useful to detect systematic
+performance differences.
+
+From an ethical standpoint, the safest deployment scenario is aggregate
+monitoring. For example, the model could help identify teams or periods where
+workload patterns become riskier. Individual predictions should require human
+review, transparency and consent. The model should never be used as a punitive
+tool or as an automatic performance evaluation system.
+
+\section{Conclusions}
+
+The project implements the required end-to-end machine learning workflow:
+problem definition, public dataset selection, preprocessing, modeling,
+evaluation, insight extraction and deployment discussion. The regression task is
+the most reliable formulation: the tuned Random Forest reaches MAE 4.88 and
+$R^2=0.936$ on unseen users, clearly outperforming the baseline. The
+classification task is useful for operational interpretation, but the
+\texttt{High} class is too rare for strong claims.
+
+The most important insight is that \texttt{task\_completion\_rate} dominates the
+prediction. This improves performance but also creates a methodological risk:
+the variable may be too close to the target-generation process. Future work
+should validate the approach on an external real-world dataset, collect richer
+contextual information, define intervention thresholds with domain experts and
+run a stronger fairness assessment before any deployment.
+
+
+\begin{thebibliography}{1}
+
+\bibitem{kaggle}
+S. Shinde, ``Work From Home Employee Burnout Dataset,'' Kaggle. [Online].
+Available:
+\url{https://www.kaggle.com/datasets/sonalshinde123/work-from-home-employee-burnout-dataset}
+
+\bibitem{shearer}
+C. Shearer, ``The CRISP-DM model: The new blueprint for data mining,''
+\emph{Journal of Data Warehousing}, vol. 5, no. 4, pp. 13--22, 2000.
+
+\bibitem{francia}
+M. Francia, ``Machine Learning and Data Mining, Module 2,'' University of
+Bologna, course slides, A.Y. 2025/2026.
+
+\end{thebibliography}
+
+\end{document}
