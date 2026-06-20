@@ -209,7 +209,12 @@ The data understanding phase showed that \texttt{task\_completion\_rate} is the
 dominant feature: it has a correlation of about $-0.96$ with
 \texttt{burnout\_score}. This is predictive, but it must be interpreted with
 caution. It may be a direct proxy for burnout or part of the synthetic logic used
-to generate the target. Other variables such as \texttt{work\_hours},
+to generate the target. A univariate Ridge model fitted on
+\texttt{task\_completion\_rate} alone achieves test MAE 4.83 and $R^2=0.934$,
+nearly matching the full thirteen-feature model ($R^2=0.936$); the remaining
+features therefore contribute almost no incremental predictive power, which
+makes the case for careful external validation before any deployment.
+Other variables such as \texttt{work\_hours},
 \texttt{screen\_time\_hours} and \texttt{meetings\_count} have weaker positive
 correlations with burnout.
 
@@ -230,6 +235,16 @@ The risk-label distribution is a major issue. The \texttt{High} class represents
 only about 1.1\% of the dataset. This affects model selection, evaluation and
 fairness: the most important class from a preventive perspective is also the
 least represented.
+
+A programmatic check confirmed that the three risk bands occupy strictly
+non-overlapping intervals of \texttt{burnout\_score} (Low: ${\leq}$69.92,
+Medium: 70.01--109.99, High: ${\geq}$110.22), meaning that
+\texttt{burnout\_risk} is a deterministic bucketisation of
+\texttt{burnout\_score} rather than an independent label. A regression model
+that predicts the score accurately can therefore be thresholded into a
+near-perfect classifier; the value of the classification task lies in
+interpretability and operational communication rather than in genuinely new
+predictive signal.
 
 For this reason, the project treats \texttt{burnout\_risk} as a secondary task.
 The continuous score gives a more stable learning signal, while the classes are
@@ -265,6 +280,15 @@ After tuning, Random Forest used 200 estimators, maximum depth 4,
 obtained CV MAE 4.85, test MAE 4.88, test RMSE 6.21 and test $R^2=0.936$. This
 is a strong improvement over the dummy baseline and confirms that the selected
 features contain useful predictive information.
+
+It is worth noting that the plain untuned Ridge achieves a lower raw test-set
+MAE (4.79) than the tuned Random Forest (4.88). Random Forest was retained as
+the primary model because it outperforms Ridge on cross-validated MAE (4.97
+vs.\ 5.06), which provides a more reliable generalisation estimate than a single
+held-out draw. The difference on the test set is within typical sampling noise
+for 360 observations, so neither direction is conclusive; the CV result is the
+appropriate selection criterion and the choice is explicitly stated here rather
+than left implicit.
 
 Cross-validation on the training set supported the same conclusion. Random
 Forest obtained mean CV MAE 4.97, Ridge 5.06, Hist Gradient Boosting 5.19, KNN
@@ -339,6 +363,14 @@ errors and high-risk recall across operational subgroups such as
 checks are not a full fairness audit, but they are useful to detect systematic
 performance differences.
 
+The per-subgroup High-risk recall figures must be interpreted with caution.
+The test set contains only four High-risk cases in total, distributed across
+multiple subgroups, so individual groups have between zero and four positive
+instances. A single prediction can swing recall between 0.0 and 1.0, and a NaN
+appears for groups with no positive cases at all. These values carry no
+statistical weight and should be read only as a directional sanity check, not
+as evidence of systemic (un)fairness in either direction.
+
 From an ethical standpoint, the safest deployment scenario is aggregate
 monitoring. For example, the model could help identify teams or periods where
 workload patterns become riskier. Individual predictions should require human
@@ -354,6 +386,12 @@ the most reliable formulation: the tuned Random Forest reaches MAE 4.88 and
 $R^2=0.936$ on unseen users, clearly outperforming the baseline. The
 classification task is useful for operational interpretation, but the
 \texttt{High} class is too rare for strong claims.
+
+Only the regression pipeline is persisted. Because \texttt{burnout\_risk} is a
+deterministic function of \texttt{burnout\_score} (verified in the notebook,
+Section~3.1), any downstream system can derive the risk label from the regression
+output by applying fixed thresholds; saving a separate classification pipeline
+would therefore duplicate functionality without adding value.
 
 The most important insight is that \texttt{task\_completion\_rate} dominates the
 prediction. This improves performance but also creates a methodological risk:
